@@ -25,9 +25,9 @@ using namespace std;
 
 
 struct node
-{   // ´æ·ÅµÄÊı¾İ¶ÔÏó
-    long double x;// ¼Û¸ñ
-    long long int y; // Ê±¼ä´ê
+{   // å­˜æ”¾çš„æ•°æ®å¯¹è±¡
+    long double x;// ä»·æ ¼
+    long long int y; // æ—¶é—´æ“
     string data,orderNo;
     node(long double x,long long int y,string data,string orderNo):x(x),y(y),data(data),orderNo(orderNo){}
 };
@@ -43,12 +43,12 @@ struct Array{
 };
 
 struct cmpDes {
-    // Ìõ¼şº¯Êı
+    // æ¡ä»¶å‡½æ•°
 /*    bool operator()(node a, node b) {
         if (a.x == b.x) return a.y >= b.y;
         else return a.x > b.x;
     }*/
-    // ¸ßµÄÅÅÔÚºóÃæ
+    // é«˜çš„æ’åœ¨åé¢
     bool operator()(node* a, node* b) {
         if (a->x == b->x) return a->y > b->y;
         else return a->x > b->x;
@@ -56,12 +56,12 @@ struct cmpDes {
 };
 
 struct cmpAes {
-    // Ìõ¼şº¯Êı
+    // æ¡ä»¶å‡½æ•°
 /*    bool operator()(node a, node b) {
         if (a.x == b.x) return a.y >= b.y;
         else return a.x > b.x;
     }*/
-    // ¸ßµÄÅÅÔÚÇ°Ãæ
+    // é«˜çš„æ’åœ¨å‰é¢
     bool operator()(node* a, node* b) {
         if (a->x == b->x) return a->y > b->y;
         else return a->x < b->x;
@@ -134,7 +134,7 @@ int main() {
         zmq_msg_t recv_msg;
         zmq_msg_t send_msg;
         zmq_msg_init(&recv_msg);
-        zmq_msg_recv(&recv_msg, z_socket, 0);//½ÓÊÜÊı¾İ
+        zmq_msg_recv(&recv_msg, z_socket, 0);//æ¥å—æ•°æ®
         string strData = (char *) zmq_msg_data(&recv_msg);
         zmq_msg_close(&recv_msg);
 #endif
@@ -146,10 +146,10 @@ int main() {
 #endif
 
         if (!strData.empty()) {
-            // ¡¾Ö¸Áî¡¿¡¾²ÎÊı¡¿
+            // ã€æŒ‡ä»¤ã€‘ã€å‚æ•°ã€‘
             Array *array = toArray(strData,' ', false);
 
-            std::cout << "ÊÕµ½Ö¸Áî£º" << array->s[0] << ",²ÎÊı£º" << array->s[1] << endl;
+            std::cout << "æ”¶åˆ°æŒ‡ä»¤ï¼š" << array->s[0] << ",å‚æ•°ï¼š" << array->s[1] << endl;
             string result = "";
             try {
                 if (array->s[0] == "push") {
@@ -160,7 +160,7 @@ int main() {
                     result.append("{\"start\":\"" + bool2string(bo)+"\"}");
                 } else if (array->s[0] == "getOne") {
                     node *no = getOne(array->s[1]);
-                    // Èç¹ûÖ¸ÏòÎªNULL
+                    // å¦‚æœæŒ‡å‘ä¸ºNULL
                     if (no == NULL) {
                         result.append("{\"start\":\"true\",\"data\":{}");
                     } else {
@@ -190,24 +190,24 @@ int main() {
                 } else {
                     result.append(
                             "{\"start\":\"true\",data:\""
-                            "push Ïò¶ÓÁĞ¹ÜÀíÌí¼ÓÒ»ÌõÊı¾İ£»"
-                            "getOne È¡µ½ÅÅÁĞµÚÒ»µÄÊı¾İ²¢ÉÏËø£»"
-                            "release ¸ù¾İ²ÎÊı½øĞĞ½âËø£»"
-                            "getAll ¸ù¾İ²ÎÊı»ñÈ¡Ö¸¶¨ÊıÁ¿µÄÊı¾İ£»"
-                            "del É¾³ıÖ¸¶¨µÄÊı¾İ£»²»»áÁ¢¼´É¾³ı£¬µ«»áÁ¢¼´²éÑ¯²»µ½£»"
-                            "update ¸üĞÂÊı¾İ£¬³ÖÓĞÔ¿³×µÄ¿Í»§¶Ë²ÅÄÜ¸ü¸Ä¡£\"}");
+                            "push å‘é˜Ÿåˆ—ç®¡ç†æ·»åŠ ä¸€æ¡æ•°æ®ï¼›"
+                            "getOne å–åˆ°æ’åˆ—ç¬¬ä¸€çš„æ•°æ®å¹¶ä¸Šé”ï¼›"
+                            "release æ ¹æ®å‚æ•°è¿›è¡Œè§£é”ï¼›"
+                            "getAll æ ¹æ®å‚æ•°è·å–æŒ‡å®šæ•°é‡çš„æ•°æ®ï¼›"
+                            "del åˆ é™¤æŒ‡å®šçš„æ•°æ®ï¼›ä¸ä¼šç«‹å³åˆ é™¤ï¼Œä½†ä¼šç«‹å³æŸ¥è¯¢ä¸åˆ°ï¼›"
+                            "update æ›´æ–°æ•°æ®ï¼ŒæŒæœ‰é’¥åŒ™çš„å®¢æˆ·ç«¯æ‰èƒ½æ›´æ”¹ã€‚\"}");
                 }
             }catch (...) {
-                result.append("{\"start\":\"false\",\"data\":\"´íÎóµÄÇëÇó£¬Çë¼ì²é²ÎÊı£¡\"}");
+                result.append("{\"start\":\"false\",\"data\":\"é”™è¯¯çš„è¯·æ±‚ï¼Œè¯·æ£€æŸ¥å‚æ•°ï¼\"}");
             }
             //std::cout << (char*)zmq_msg_data(&recv_msg) << std::endl;
-            // ×°ÔØÊı¾İÄÚ´æ
+            // è£…è½½æ•°æ®å†…å­˜
             int size = result.size();
 #ifdef __WINDOWS_
             zmq_msg_init_size(&send_msg, size);
-            memcpy(zmq_msg_data(&send_msg), result.c_str(), size);//ÉèÖÃ·µ»ØÊı¾İ
-            zmq_sendmsg(z_socket, &send_msg, 0);//·¢ËÍ
-            zmq_msg_close(&send_msg);//¹Ø±ÕÍ¨µÀ
+            memcpy(zmq_msg_data(&send_msg), result.c_str(), size);//è®¾ç½®è¿”å›æ•°æ®
+            zmq_sendmsg(z_socket, &send_msg, 0);//å‘é€
+            zmq_msg_close(&send_msg);//å…³é—­é€šé“
 #endif
 
 #ifdef linux
@@ -229,11 +229,11 @@ void outTime(){
     while (1){
         if (is == 0){
         #ifdef __WINDOWS_
-            Sleep(1000);// ĞİÃß1Ãë °´ºÁÃë¼ÆËã
+            Sleep(1000);// ä¼‘çœ 1ç§’ æŒ‰æ¯«ç§’è®¡ç®—
         #endif
 
         #ifdef linux
-            sleep(1);// ĞİÃß1Ãë °´Ãë¼ÆËã
+            sleep(1);// ä¼‘çœ 1ç§’ æŒ‰ç§’è®¡ç®—
         #endif
 
         }
@@ -265,7 +265,7 @@ void *thread(void *ptr)
 }
 
 /**
- * »ñÈ¡¶ÔÏó²¢ÉÏËø
+ * è·å–å¯¹è±¡å¹¶ä¸Šé”
  * @param symbol
  * @param isBuy
  * @return
@@ -275,9 +275,9 @@ void *thread(void *ptr)
     string symbol = map2["symbol"];
     int isBuy = string2int(map2["isBuy"]);
     if (isBuy == 1){
-        // »ñÈ¡¹ºÂò¶ÓÁĞ
+        // è·å–è´­ä¹°é˜Ÿåˆ—
         priority_queue<node,vector<node*>,cmpAes> *pq = containerBuy[symbol];
-        //¶ÓÁĞÎª¿Õ
+        //é˜Ÿåˆ—ä¸ºç©º
         if (pq == NULL || pq->empty()){
             return NULL;
         } else{
@@ -290,27 +290,27 @@ void *thread(void *ptr)
                 (*rem).erase(no->orderNo.c_str());
                 return getOne(msg);
             }
-            // ÅĞ¶ÏÊÇ·ñÉÏËø
+            // åˆ¤æ–­æ˜¯å¦ä¸Šé”
             if ((*lock)[no->orderNo.c_str()] != NULL){
-                // ÊÇÔò·µ»Ø×´Ì¬
+                // æ˜¯åˆ™è¿”å›çŠ¶æ€
                 return new node(0,0,"{\"start\":0}","0");
             }
-            // ½øĞĞÉÏËø ²¢·µ»ØÊı¾İ
+            // è¿›è¡Œä¸Šé” å¹¶è¿”å›æ•°æ®
             (*lock)[no->orderNo.c_str()] = rand() % 999999999 + 100000000;
             string lock_str = long2str((*lock)[no->orderNo.c_str()]);
             no->data.append(",\"lock\":"+lock_str);
             time_t t;
             time(&t);
             t += outTime_;
-            outNode *out = new outNode(t,no->orderNo);//´´½¨Ëø³¬Ê±Êı¾İ
+            outNode *out = new outNode(t,no->orderNo);//åˆ›å»ºé”è¶…æ—¶æ•°æ®
             if (conrainerLock == NULL){
                 conrainerLock = new priority_queue<outNode,vector<outNode*>,lockDes>();
             }
-            conrainerLock->push(out);//·ÅÈë³¬Ê±¶ÓÁĞ
+            conrainerLock->push(out);//æ”¾å…¥è¶…æ—¶é˜Ÿåˆ—
             return no;
         }
     } else{
-        // »ñÈ¡³öÊÛ¶ÓÁĞ
+        // è·å–å‡ºå”®é˜Ÿåˆ—
         priority_queue<node,vector<node*>,cmpDes> *pq = containerSell[symbol];
         if (pq == NULL || pq->empty()){
             return NULL;
@@ -334,18 +334,18 @@ void *thread(void *ptr)
             time_t t;
             time(&t);
             t += outTime_;
-            outNode *out = new outNode(t,no->orderNo);//´´½¨Ëø³¬Ê±Êı¾İ
+            outNode *out = new outNode(t,no->orderNo);//åˆ›å»ºé”è¶…æ—¶æ•°æ®
             if (conrainerLock == NULL){
                 conrainerLock = new priority_queue<outNode,vector<outNode*>,lockDes>();
             }
-            conrainerLock->push(out);//·ÅÈë³¬Ê±¶ÓÁĞ
+            conrainerLock->push(out);//æ”¾å…¥è¶…æ—¶é˜Ÿåˆ—
             return no;
         }
     }
 }
 
 /**
- * ¸ù¾İ¶©µ¥±àºÅºÍ¶ÔÓ¦µÄËøĞòÁĞ½øĞĞÊÍ·Å
+ * æ ¹æ®è®¢å•ç¼–å·å’Œå¯¹åº”çš„é”åºåˆ—è¿›è¡Œé‡Šæ”¾
  * @param orderNo
  * @param lock_
  * @return
@@ -364,7 +364,7 @@ void *thread(void *ptr)
  }
 
  /**
-  * Í¨¹ıÍøÂç´«Êä½ÓÊÜÊı¾İ²¢´¦ÀíÈë¶ÓÁĞ
+  * é€šè¿‡ç½‘ç»œä¼ è¾“æ¥å—æ•°æ®å¹¶å¤„ç†å…¥é˜Ÿåˆ—
   * @param msg
   * @return
   */
@@ -410,10 +410,10 @@ void *thread(void *ptr)
      return false;
  }
 /**
- * »ñÈ¡Ö¸¶¨Ö¸¶¨ÀàĞÍºÍ±ÒÖÖµÄÖ¸¶¨ÌõÊı¾İ
- * @param size ²éÑ¯ÊıÁ¿
- * @param orderTye ¶©µ¥ÀàĞÍ
- * @param symbol ±ÒÖÖ
+ * è·å–æŒ‡å®šæŒ‡å®šç±»å‹å’Œå¸ç§çš„æŒ‡å®šæ¡æ•°æ®
+ * @param size æŸ¥è¯¢æ•°é‡
+ * @param orderTye è®¢å•ç±»å‹
+ * @param symbol å¸ç§
  * @return
  */
  string getAll(string msg){
@@ -424,7 +424,7 @@ void *thread(void *ptr)
      string result = "";
      result.append("[");
      if((orderTye) == "buy"){
-         // »ñÈ¡µ½¶ÔÏó ¶ø²»ÊÇÖ¸Õë
+         // è·å–åˆ°å¯¹è±¡ è€Œä¸æ˜¯æŒ‡é’ˆ
          if (containerBuy[symbol] != NULL){
              priority_queue<node,vector<node*>,cmpAes> pq = *containerBuy[symbol];
              if (!pq.empty()){
@@ -447,7 +447,7 @@ void *thread(void *ptr)
              }
          }
      } else{
-         // »ñÈ¡µ½¶ÔÏó ¶ø²»ÊÇÖ¸Õë
+         // è·å–åˆ°å¯¹è±¡ è€Œä¸æ˜¯æŒ‡é’ˆ
          if (containerSell[symbol] != NULL){
              priority_queue<node,vector<node*>,cmpDes> pq = *containerSell[symbol];
              if (!pq.empty()){
@@ -480,7 +480,7 @@ void *thread(void *ptr)
      string orderTye = map2["orderTye"];
      string symbol = map2["symbol"];
      string result = "";
-     //ÅĞ¶ÏĞèÒªÉ¾³ıµÄÊı¾İÊÇ·ñÉÏËø
+     //åˆ¤æ–­éœ€è¦åˆ é™¤çš„æ•°æ®æ˜¯å¦ä¸Šé”
      if ((*lock)[orderNo.c_str()] != NULL){
          return result;
      }
@@ -504,7 +504,7 @@ void *thread(void *ptr)
              }
          }
      } else{
-         // »ñÈ¡µ½¶ÔÏó ¶ø²»ÊÇÖ¸Õë
+         // è·å–åˆ°å¯¹è±¡ è€Œä¸æ˜¯æŒ‡é’ˆ
          if (containerSell[symbol] != NULL){
              priority_queue<node,vector<node*>,cmpDes> pq = *containerSell[symbol];
              if (!pq.empty()){
@@ -539,7 +539,7 @@ bool update(string msg){
         long oldLock = (*lock)[orderNo.c_str()];
         if(oldLock == lock_){
             (*lock)[orderNo.c_str()] = NULL;
-            pq->pop();//É¾³ı¶¥²¿µÄÊı¾İ
+            pq->pop();//åˆ é™¤é¡¶éƒ¨çš„æ•°æ®
             return push(msg);
         }
     } else{
@@ -549,7 +549,7 @@ bool update(string msg){
         long oldLock = (*lock)[orderNo.c_str()];
         if(oldLock == lock_){
             (*lock)[orderNo.c_str()] = NULL;
-            pq->pop();//É¾³ı¶¥²¿µÄÊı¾İ
+            pq->pop();//åˆ é™¤é¡¶éƒ¨çš„æ•°æ®
             return push(msg);
         }
     }
