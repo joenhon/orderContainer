@@ -77,12 +77,16 @@ struct lockDes{
 
 static map<string , priority_queue<node,vector<node*>,cmpAes>*> containerBuy;
 static map<string , priority_queue<node,vector<node*>,cmpDes>*> containerSell;
+static map<string , map<string,long double >*> containerBuyDepth;
+static map<string , map<string,long double >*> containerSellDepth;
+static map<string , priority_queue<node,vector<node*>,cmpAes>*> linkedBuy;
+static map<string , priority_queue<node,vector<node*>,cmpDes>*> linkedSell;
 static map<string,long> *lock = new map<string,long>;
 static map<string,int> *rem = new map<string,int>;
-static map<string,long double> *depth;
 static priority_queue<outNode,vector<outNode*>,lockDes> *conrainerLock = new priority_queue<outNode,vector<outNode*>,lockDes>();;
 static int start = 1;
 static long outTime_ = 0;
+static int wait = 0;
 
 node* getOne(string msg);
 bool release(string msg);
@@ -102,6 +106,8 @@ long double string2ldouble(string str);
 int getSize(int lenght,const char *ca, char c);
 string bool2string(bool bo);
 void outTime();
+void wait_();
+void wait_release();
 #ifdef linux
     void *thread(void *ptr);
 #endif
@@ -155,7 +161,7 @@ int main() {
             //Array *array =
             string array[255];
             toArray(strData,' ', false,array);
-            std::cout << "收到指令：" << array[0] << ",参数：" << array[1] << endl;
+            //std::cout << "收到指令：" << array[0] << ",参数：" << array[1] << endl;
             string result = "";
             try {
                 if (array[0] == "push") {
@@ -173,7 +179,8 @@ int main() {
                         result.append("{\"start\":\"true\"");
                         result.append(",\"data\":" + no->data+"}");
                     }
-                    //cout << "返回数据：" << result << endl;
+                    //result.append("{\"start\":\"false\",\"data\":{}}");
+                    cout << "返回数据：" << result << endl;
                 } else if (array[0] == "release") {
                     bool bo = release(array[1]);
                     result.append("{\"start\":\"" + bool2string(bo)+"\"}");
@@ -185,8 +192,11 @@ int main() {
                         result.append("{\"start\":\"true\"");
                         result.append(",\"data\":" + data+"}");
                     }
+/*                    result.append("{\"start\":\"true\"");
+                    result.append(",\"data\":[]}");*/
 
                 } else if (array[0] == "del") {
+
                     string data = del(array[1]);
                     if (data == "") {
                         result.append("{\"start\":\"false\"}");
@@ -243,7 +253,7 @@ int main() {
 
 void outTime(){
     int is = 0;
-    while (1){
+    while (start){
         if (is == 0){
         #ifdef WIN32
             Sleep(1000);// 休眠1秒 按毫秒计算
@@ -307,11 +317,16 @@ void outTime(){
             if (no == NULL){
                 return NULL;
             }
-            if ((*rem)[no->orderNo]){
-                pq->pop();
-                (*rem)[no->orderNo] = 0;
-                rem->erase(no->orderNo);
-                return getOne(msg);
+            while (start){
+                int rm = (*rem)[no->orderNo];
+                if (rm != 0){
+                    pq->pop();
+                    (*rem)[no->orderNo] = 0;
+                    rem->erase(no->orderNo);
+                    no = pq->top();
+                } else{
+                    break;
+                }
             }
             // 判断是否上锁
             if ((*lock)[no->orderNo] != 0){
@@ -339,13 +354,18 @@ void outTime(){
             if (no == NULL){
                 return NULL;
             }
-            if ((*rem)[no->orderNo]){
-                pq->pop();
-                (*rem)[no->orderNo] = 0;
-                rem->erase(no->orderNo);
-                return getOne(msg);
+            while (start){
+                int rm = (*rem)[no->orderNo];
+                if (rm != 0){
+                    pq->pop();
+                    (*rem)[no->orderNo] = 0;
+                    rem->erase(no->orderNo);
+                    no = pq->top();
+                } else{
+                    break;
+                }
             }
-            if ((*lock)[no->orderNo] != NULL){
+            if ((*lock)[no->orderNo] != 0){
                 return new node(0,0,"{start:0}","0");
             }
             (*lock)[no->orderNo] = rand() % 999999999 + 100000000;
@@ -401,9 +421,9 @@ void outTime(){
 
      string price = map2["price"];
      string time = map2["createTime"];
+     string symbol = map2["symbol"];
      long double s = string2ldouble(price);
      long long int lll = string2lli(time);
-     cout << s << endl;
      node *a = new node(
             s,
             lll,
@@ -411,7 +431,7 @@ void outTime(){
             map2["orderNo"]
             );
      if (map2["type"] == "Buy"){
-         priority_queue<node,vector<node*>,cmpAes> *pq = containerBuy[map2["symbol"]];
+         priority_queue<node,vector<node*>,cmpAes> *pq = containerBuy[symbol];
          if (pq == NULL || (*pq).empty()){
              priority_queue<node,vector<node*>,cmpAes> *pq = new priority_queue<node,vector<node*>,cmpAes>;
              pq ->push(a);
@@ -420,16 +440,29 @@ void outTime(){
              pq->push(a);
              //containerBuy["test"] = &pq;
          }
-
+         map<string,long double> *depth = containerBuyDepth[symbol];
+         priority_queue<node,vector<node*>,cmpAes> *de_link = linkedBuy[symbol];
          if (depth == NULL){
-             depth = new map<string,long double>();
+             depth = new map<string,long double>;
+             containerBuyDepth[symbol] = depth;
          }
-         string key = map2["symbol"]+map2["type"]+price;
-         long double val = (*depth)[key];
-         (*depth)[key] = val + string2ldouble(map2["amount"]);
+         if (de_link == NULL){
+             de_link = new priority_queue<node,vector<node*>,cmpAes>;
+             linkedBuy[symbol] = de_link;
+         }
+         long double val = (*depth)[price];
+         if (val == 0){
+             //之前不存在该价格的交易
+             node *a_ = new node(s,0,price,"");
+             de_link->push(a_);
+             (*depth)[price] = string2ldouble(map2["amount"]);
+         } else{
+             (*depth)[price] = val + string2ldouble(map2["amount"]);
+         }
+
          return true;
      } else if (map2["type"] == "Sell"){
-         priority_queue<node,vector<node*>,cmpDes> *pq = containerSell[map2["symbol"]];
+         priority_queue<node,vector<node*>,cmpDes> *pq = containerSell[symbol];
          if (pq == NULL || (*pq).empty()){
              priority_queue<node,vector<node*>,cmpDes> *pq = new priority_queue<node,vector<node*>,cmpDes>;
              pq ->push(a);
@@ -438,13 +471,26 @@ void outTime(){
              pq->push(a);
              //containerBuy["test"] = &pq;
          }
-
+         map<string,long double> *depth = containerSellDepth[symbol];
+         priority_queue<node,vector<node*>,cmpDes> *de_link = linkedSell[symbol];
          if (depth == NULL){
-             depth = new map<string,long double>();
+             depth = new map<string,long double>;
+             containerSellDepth[symbol] = depth;
          }
-         string key = map2["symbol"]+map2["type"]+price;
-         long double val = (*depth)[key];
-         (*depth)[key] = val + string2ldouble(map2["amount"]);
+         if (de_link == NULL){
+             de_link = new priority_queue<node,vector<node*>,cmpDes>;
+             linkedSell[symbol] = de_link;
+         }
+         long double val = (*depth)[price];
+         if (val == 0){
+             //之前不存在该价格的交易
+             node *a_ = new node(s,0,price,"");
+             de_link->push(a_);
+             (*depth)[price] = string2ldouble(map2["amount"]);
+         } else{
+             (*depth)[price] = val + string2ldouble(map2["amount"]);
+         }
+
          return true;
      }
      return false;
@@ -476,7 +522,7 @@ void outTime(){
                      if (!pq.empty()){
                          long lock_ = (*lock)[no->orderNo];
                          int  remLo = (*rem)[no->orderNo];
-                         if (lock_ != 0 || remLo){
+                         if (lock_ != 0 || remLo != 0){
                              pq.pop();
                              continue;
                          }
@@ -508,7 +554,7 @@ void outTime(){
                      if (!pq.empty()){
                          long lock_ = (*lock)[no->orderNo];
                          int  remLo = (*rem)[no->orderNo];
-                         if (lock_ != 0 || remLo){
+                         if (lock_ != 0 || remLo != 0){
                              pq.pop();
                              continue;
                          }
@@ -545,9 +591,10 @@ void outTime(){
     string result = "";
     result.append("[");
     if(orderTye == "Buy"){
+        map<string,long double> *depth = containerBuyDepth[symbol];
         // 获取到对象 而不是指针
-        if (containerBuy[symbol] != NULL){
-            priority_queue<node,vector<node*>,cmpAes> pq = *containerBuy[symbol];
+        if (depth != NULL){
+            priority_queue<node,vector<node*>,cmpAes> pq = *linkedBuy[symbol];
             if (!pq.empty()){
                 if (size == -1){
                     size = pq.size();
@@ -565,8 +612,14 @@ void outTime(){
                         if (i != 0){
                             result.append(",");
                         }
-                        string key = symbol+orderTye+double2str(no->x);
-                        result.append("{\""+double2str(no->x)+"\":"+double2str((*depth)[key])+"}");
+                        string key = no->data;
+                        string value = double2str((*depth)[key]);
+                        if (value == "0"){
+                            i--;
+                            pq.pop();
+                            continue;
+                        }
+                        result.append("{\""+key+"\":"+value+"}");
                         price_odl = no->x;
                         pq.pop();
                     } else{
@@ -577,8 +630,9 @@ void outTime(){
         }
     } else{
         // 获取到对象 而不是指针
-        if (containerSell[symbol] != NULL){
-            priority_queue<node,vector<node*>,cmpDes> pq = *containerSell[symbol];
+        map<string,long double> *depth = containerSellDepth[symbol];
+        if (depth != NULL){
+            priority_queue<node,vector<node*>,cmpDes> pq = *linkedSell[symbol];
             if (!pq.empty()){
                 if (size == -1){
                     size = pq.size();
@@ -596,8 +650,14 @@ void outTime(){
                         if (i != 0){
                             result.append(",");
                         }
-                        string key = symbol+orderTye+double2str(no->x);
-                        result.append("{"+double2str(no->x)+","+double2str((*depth)[key])+"}");
+                        string key = no->data;
+                        string value = double2str((*depth)[key]);
+                        if (value == "0"){
+                            i--;
+                            pq.pop();
+                            continue;
+                        }
+                        result.append("{"+key+","+value+"}");
                         price_odl = no->x;
                         pq.pop();
                     }else{
@@ -614,36 +674,62 @@ void outTime(){
  string del(string msg){
      map<string,string> map2 = toMap(msg);
      string orderNo = map2["orderNo"];
-     string orderTye = map2["type"];
-     string symbol = map2["symbol"];
 
-
-     string result = "";
      //判断需要删除的数据是否上锁
      long oldLock = (*lock)[orderNo];
      if (oldLock != 0){
          long lock_ = string2long(map2["lock"]);
          if(lock_ == 0 || oldLock != lock_){
-             return result;
+             return "";
          }
      }
+     string orderTye = map2["type"];
+     string symbol = map2["symbol"];
+     string sequence = map2["sequence"];
+
+     string result;
      if(orderTye == "Buy"){
          if (containerBuy[symbol] != NULL){
              priority_queue<node,vector<node*>,cmpAes> pq = *containerBuy[symbol];
-             if (!pq.empty()){
-                 for (int i = 0; i < pq.size(); ++i) {
-                     node *no = pq.top();
-                     if (!pq.empty() && no->orderNo == orderNo){
-                         if (no->data[0] != '{'){
-                             result.append("{"+no->data+"}");
-                         } else{
-                             result.append(no->data);
-                         }
-                         (*rem)[orderNo] = 1;
-                         break;
+             while (!pq.empty()){
+                 node *no = pq.top();
+                 pq.pop();
+                 if (no->orderNo == orderNo){
+                     if (no->data[0] != '{'){
+                         result.append("{"+no->data+"}");
                      } else{
-                         break;
+                         result.append(no->data);
                      }
+                     map<string,string> map_or = toMap(result);
+                     if (sequence.empty() || sequence != map_or["sequence"]){
+                         return "";
+                     }
+                     map<string,long double> *depth = containerBuyDepth[symbol];
+                     priority_queue<node,vector<node*>,cmpAes> *de_link = linkedBuy[symbol];
+                     //priority_queue<node,vector<node*>,cmpAes> *de_link_copy = new priority_queue<node,vector<node*>,cmpAes>;
+                     list<node*> no_list;
+                     while (!de_link->empty()){
+                         node *no_ = de_link->top();
+                         de_link->pop();
+                         if (no->x == no_->x){
+                             long double val = (*depth)[map_or["price"]];
+                             (*depth)[map_or["price"]] = val - string2ldouble(map2["amount"]);
+                             while (!no_list.empty()){
+                                 de_link->push(no_list.front());
+                                 no_list.pop_front();//删除第一个元素
+                             }
+                             break;
+                         }
+                         no_list.push_back(no_);
+                     }
+                     if (!de_link->empty()){
+                         while (!no_list.empty()){
+                             de_link->push(no_list.front());
+                             no_list.pop_front();//删除第一个元素
+                         }
+                     }
+                     (*rem)[no->orderNo] = 1;
+                     break;
                  }
              }
          }
@@ -651,27 +737,52 @@ void outTime(){
          // 获取到对象 而不是指针
          if (containerSell[symbol] != NULL){
              priority_queue<node,vector<node*>,cmpDes> pq = *containerSell[symbol];
-             if (!pq.empty()){
-                 for (int i = 0; i < pq.size(); ++i) {
-                     node *no = pq.top();
-                     if (!pq.empty() && no->orderNo == orderNo){
-                         if (no->data[0] != '{'){
-                             result.append("{"+no->data+"}");
-                         } else{
-                             result.append(no->data);
-                         }
-                         (*rem)[orderNo] = 1;
-                         break;
+
+             while (!pq.empty()){
+                 node *no = pq.top();
+                 pq.pop();
+                 if (no->orderNo == orderNo){
+                     if (no->data[0] != '{'){
+                         result.append("{"+no->data+"}");
                      } else{
-                         break;
+                         result.append(no->data);
                      }
+                     map<string,string> map_or = toMap(result);
+                     if (sequence.empty() || sequence != map_or["sequence"]){
+                         return "";
+                     }
+                     map<string,long double> *depth = containerBuyDepth[symbol];
+                     priority_queue<node,vector<node*>,cmpAes> *de_link = linkedBuy[symbol];
+                     //priority_queue<node,vector<node*>,cmpAes> *de_link_copy = new priority_queue<node,vector<node*>,cmpAes>;
+                     list<node*> no_list;
+                     while (!de_link->empty()){
+                         node *no_ = de_link->top();
+                         de_link->pop();
+                         if (no->x == no_->x){
+                             long double val = (*depth)[map_or["price"]];
+                             (*depth)[map_or["price"]] = val - string2ldouble(map2["amount"]);
+                             while (!no_list.empty()){
+                                 de_link->push(no_list.front());
+                                 no_list.pop_front();//删除第一个元素
+                             }
+                             break;
+                         }
+                         no_list.push_back(no_);
+                     }
+                     if (!de_link->empty()){
+                         while (!no_list.empty()){
+                             de_link->push(no_list.front());
+                             no_list.pop_front();//删除第一个元素
+                         }
+                     }
+                     (*rem)[no->orderNo] = 1;
+                     break;
                  }
              }
          }
      }
      if (result == ""){
-         (*rem)[orderNo] = 1;
-         rem->erase(orderNo);
+         //rem->erase(orderNo);
          result = "{}";
      }
      return result;
@@ -817,4 +928,21 @@ string double2str(long double l){
          }
      }
      return size;
+ }
+
+ void wait_(){
+     while (wait){
+        #ifdef WIN32
+                 Sleep(10);// 休眠1秒 按毫秒计算
+        #endif
+
+        #ifdef linux
+                 sleep(0.01);// 休眠1秒 按秒计算
+        #endif
+     }
+     wait = 1;
+ }
+
+ void wait_release(){
+     wait = 0;
  }
