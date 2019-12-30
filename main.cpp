@@ -1,9 +1,13 @@
+#include <utility>
+
 #include <iostream>
 #include <cassert>
 #include <queue>
 #include <map>
 #include <cstdlib>
 #include <sstream>
+#include "include/Log.h"
+
 
 #ifdef WIN32
     #include <thread>
@@ -14,12 +18,15 @@
 #ifdef linux
     #include <pthread.h>
     #include <unistd.h>
+    #include <csignal>
+    #include <sys/stat.h>
 #endif
 #include <zmq.h>
 #include "include/RrConfig.h"
 #include <list>
 #include <time.h>
 #include <cstring>
+
 
 
 using namespace std;
@@ -30,7 +37,7 @@ struct node
     long double x;// 价格
     long long int y; // 时间搓
     string data,orderNo;
-    node(long double x,long long int y,string data,string orderNo):x(x),y(y),data(data),orderNo(orderNo){}
+    node(long double x,long long int y,string  data,string orderNo):x(x),y(y),data(std::move(data)),orderNo(orderNo){}
 };
 
 struct outNode{
@@ -86,28 +93,26 @@ static map<string,int> *rem = new map<string,int>;
 static priority_queue<outNode,vector<outNode*>,lockDes> *conrainerLock = new priority_queue<outNode,vector<outNode*>,lockDes>();;
 static int start = 1;
 static long outTime_ = 0;
-static int wait = 0;
 
-node* getOne(string msg);
-bool release(string msg);
-bool push(string msg);
-string getAll(string msg);
-string getDepthAll(string msg);
-string del(string msg);
-bool update(string msg);
-map<string,string> toMap(string msg);
-void toArray(string msg, char c, bool isMap,string array[]);
-long long int string2lli(string str);
-int string2int(string str);
-long string2long(string str);
+node* getOne(const string& msg);
+bool release(const string& msg);
+bool push(const string& msg);
+string getAll(const string& msg);
+string getDepthAll(const string& msg);
+string del(const string& msg);
+bool update(const string& msg);
+map<string,string> toMap(const string& msg);
+void toArray(const string& msg, char c, bool isMap,string array[]);
+long long int string2lli(const string& str);
+int string2int(const string& str);
+long string2long(const string& str);
 string long2str(long l);
 string double2str(long double l);
-long double string2ldouble(string str);
+long double string2ldouble(const string& str);
 int getSize(int lenght,const char *ca, char c);
 string bool2string(bool bo);
 void outTime();
-void wait_();
-void wait_release();
+void deome();
 #ifdef linux
     void *thread(void *ptr);
 #endif
@@ -116,10 +121,13 @@ void wait_release();
 int main() {
     cout << "start" << endl;
     rr::RrConfig config;
+    Log *log = new Log;
     config.ReadConfig("../config.ini");
+    log->init(config.ReadString("System", "logPath", ""));
     string url = config.ReadString("ZMQ", "url", "");
     outTime_ = config.ReadInt("System","lockOutTime",30);
-    cout << "bind: " << url << "；lock out time :" << outTime_ << endl;
+    int finalData = config.ReadInt("System","finalData",0);
+    deome(); // 启动守护进程
     #ifdef WIN32
         thread outTimeThread(outTime);
         void* context = zmq_init(1);
@@ -138,8 +146,9 @@ int main() {
 
 
     zmq_bind(z_socket, url.c_str());
+    cout << "bind: " << url << "；lock out time :" << outTime_ << endl;
+    log->info( "bind: " + url + "；lock out time :" + long2str(outTime_));
     while (start) {
-
 
 #ifdef WIN32
         zmq_msg_t recv_msg;
@@ -162,7 +171,8 @@ int main() {
             string array[255];
             toArray(strData,' ', false,array);
             //std::cout << "收到指令：" << array[0] << ",参数：" << array[1] << endl;
-            string result = "";
+            //log->info( "收到指令: " + array[0] + "；参数 :" + array[1]);
+            string result;
             try {
                 if (array[0] == "push") {
                     bool bo = push(array[1]);
@@ -180,13 +190,13 @@ int main() {
                         result.append(",\"data\":" + no->data+"}");
                     }
                     //result.append("{\"start\":\"false\",\"data\":{}}");
-                    cout << "返回数据：" << result << endl;
+                    //cout << "返回数据：" << result << endl;
                 } else if (array[0] == "release") {
                     bool bo = release(array[1]);
                     result.append("{\"start\":\"" + bool2string(bo)+"\"}");
                 } else if (array[0] == "getAll") {
                     string data = getAll(array[1]);
-                    if (data == "") {
+                    if (data.empty()) {
                         result.append("{\"start\":\"false\"}");
                     } else {
                         result.append("{\"start\":\"true\"");
@@ -198,7 +208,7 @@ int main() {
                 } else if (array[0] == "del") {
 
                     string data = del(array[1]);
-                    if (data == "") {
+                    if (data.empty()) {
                         result.append("{\"start\":\"false\"}");
                     } else {
                         result.append("{\"start\":\"true\"");
@@ -206,12 +216,16 @@ int main() {
                     }
                 }else if (array[0] == "getDepthAll") {
                     string data = getDepthAll(array[1]);
-                    if (data == "") {
+                    if (data.empty()) {
                         result.append("{\"start\":\"false\"}");
                     } else {
                         result.append("{\"start\":\"true\"");
                         result.append(",\"data\":" + data+"}");
                     }
+                } else if(array[0] == "stop"){
+                    //程序退出
+                    //TODO 后期需要添加数据保存 失效机制
+                    exit(0);
                 } else {
                     result.append(
                             "{\"start\":\"true\",data:\""
@@ -225,6 +239,7 @@ int main() {
                 }
             }catch (...) {
                 result.append("{\"start\":\"false\",\"data\":\"错误的请求，请检查参数！\"}");
+                log->error("出现异常！"+strData);
             }
 
             //std::cout << (char*)zmq_msg_data(&recv_msg) << std::endl;
@@ -302,11 +317,11 @@ void outTime(){
  * @param isBuy
  * @return
  */
- node* getOne(string msg){
+ node* getOne(const string& msg){
     map<string,string> map2 = toMap(msg);
     string symbol = map2["symbol"];
-    string isBuy = map2["type"];
-    if (isBuy == "Buy"){
+    string isBuy = map2["direction"];
+    if (isBuy == "1"){
         // 获取购买队列
         priority_queue<node,vector<node*>,cmpAes> *pq = containerBuy[symbol];
         //队列为空
@@ -320,6 +335,9 @@ void outTime(){
             while (start){
                 int rm = (*rem)[no->orderNo];
                 if (rm != 0){
+                    if(pq->size() == 1){
+                        return NULL;
+                    }
                     pq->pop();
                     (*rem)[no->orderNo] = 0;
                     rem->erase(no->orderNo);
@@ -357,6 +375,9 @@ void outTime(){
             while (start){
                 int rm = (*rem)[no->orderNo];
                 if (rm != 0){
+                    if(pq->size() == 1){
+                        return NULL;
+                    }
                     pq->pop();
                     (*rem)[no->orderNo] = 0;
                     rem->erase(no->orderNo);
@@ -388,7 +409,7 @@ void outTime(){
  * @param lock_
  * @return
  */
- bool release(string msg){
+ bool release(const string& msg){
     map<string,string> map2 = toMap(msg);
     string orderNo = map2["orderNo"];
     long lock_ = string2long(map2["lock"]);
@@ -407,7 +428,7 @@ void outTime(){
   * @param msg
   * @return
   */
- bool push(string msg){
+ bool push(const string& msg){
     /**
      *  "id=1,orderNo=1231231,orderTye=sell...."
      */
@@ -430,7 +451,7 @@ void outTime(){
             msg,
             map2["orderNo"]
             );
-     if (map2["type"] == "Buy"){
+     if (map2["direction"] == "1"){
          priority_queue<node,vector<node*>,cmpAes> *pq = containerBuy[symbol];
          if (pq == NULL || (*pq).empty()){
              priority_queue<node,vector<node*>,cmpAes> *pq = new priority_queue<node,vector<node*>,cmpAes>;
@@ -461,7 +482,7 @@ void outTime(){
          }
 
          return true;
-     } else if (map2["type"] == "Sell"){
+     } else if (map2["direction"] == "2"){
          priority_queue<node,vector<node*>,cmpDes> *pq = containerSell[symbol];
          if (pq == NULL || (*pq).empty()){
              priority_queue<node,vector<node*>,cmpDes> *pq = new priority_queue<node,vector<node*>,cmpDes>;
@@ -502,14 +523,14 @@ void outTime(){
  * @param symbol 币种
  * @return
  */
- string getAll(string msg){
+ string getAll(const string& msg){
      map<string,string> map2 = toMap(msg);
      int size = string2int(map2["size"]);
-     string orderTye = map2["type"];
+     string orderTye = map2["direction"];
      string symbol = map2["symbol"];
-     string result = "";
+     string result;
      result.append("[");
-     if(orderTye == "Buy"){
+     if(orderTye == "1"){
          // 获取到对象 而不是指针
          if (containerBuy[symbol] != NULL){
              priority_queue<node,vector<node*>,cmpAes> pq = *containerBuy[symbol];
@@ -583,14 +604,14 @@ void outTime(){
  * @param msg
  * @return
  */
- string getDepthAll(string msg){
+ string getDepthAll(const string& msg){
     map<string,string> map2 = toMap(msg);
     int size = string2int(map2["size"]);
-    string orderTye = map2["type"];
+    string orderTye = map2["direction"];
     string symbol = map2["symbol"];
-    string result = "";
+    string result;
     result.append("[");
-    if(orderTye == "Buy"){
+    if(orderTye == "1"){
         map<string,long double> *depth = containerBuyDepth[symbol];
         // 获取到对象 而不是指针
         if (depth != NULL){
@@ -657,7 +678,7 @@ void outTime(){
                             pq.pop();
                             continue;
                         }
-                        result.append("{"+key+","+value+"}");
+                        result.append("{\""+key+"\":"+value+"}");
                         price_odl = no->x;
                         pq.pop();
                     }else{
@@ -671,7 +692,7 @@ void outTime(){
     return result;
  }
 
- string del(string msg){
+ string del(const string& msg){
      map<string,string> map2 = toMap(msg);
      string orderNo = map2["orderNo"];
 
@@ -683,12 +704,12 @@ void outTime(){
              return "";
          }
      }
-     string orderTye = map2["type"];
+     string orderTye = map2["direction"];
      string symbol = map2["symbol"];
      string sequence = map2["sequence"];
 
      string result;
-     if(orderTye == "Buy"){
+     if(orderTye == "1"){
          if (containerBuy[symbol] != NULL){
              priority_queue<node,vector<node*>,cmpAes> pq = *containerBuy[symbol];
              while (!pq.empty()){
@@ -708,7 +729,7 @@ void outTime(){
                      priority_queue<node,vector<node*>,cmpAes> *de_link = linkedBuy[symbol];
                      //priority_queue<node,vector<node*>,cmpAes> *de_link_copy = new priority_queue<node,vector<node*>,cmpAes>;
                      list<node*> no_list;
-                     while (!de_link->empty()){
+                     while (de_link != NULL && !de_link->empty()){
                          node *no_ = de_link->top();
                          de_link->pop();
                          if (no->x == no_->x){
@@ -722,7 +743,7 @@ void outTime(){
                          }
                          no_list.push_back(no_);
                      }
-                     if (!de_link->empty()){
+                     if (de_link != NULL && !de_link->empty()){
                          while (!no_list.empty()){
                              de_link->push(no_list.front());
                              no_list.pop_front();//删除第一个元素
@@ -755,7 +776,7 @@ void outTime(){
                      priority_queue<node,vector<node*>,cmpAes> *de_link = linkedBuy[symbol];
                      //priority_queue<node,vector<node*>,cmpAes> *de_link_copy = new priority_queue<node,vector<node*>,cmpAes>;
                      list<node*> no_list;
-                     while (!de_link->empty()){
+                     while (de_link != NULL && !de_link->empty()){
                          node *no_ = de_link->top();
                          de_link->pop();
                          if (no->x == no_->x){
@@ -769,7 +790,7 @@ void outTime(){
                          }
                          no_list.push_back(no_);
                      }
-                     if (!de_link->empty()){
+                     if (de_link != NULL && !de_link->empty()){
                          while (!no_list.empty()){
                              de_link->push(no_list.front());
                              no_list.pop_front();//删除第一个元素
@@ -781,20 +802,20 @@ void outTime(){
              }
          }
      }
-     if (result == ""){
+     if (result.empty()){
          //rem->erase(orderNo);
          result = "{}";
      }
      return result;
  }
 
-bool update(string msg){
+bool update(const string& msg){
     map<string,string> map2 = toMap(msg);
-    string orderTye = map2["type"];
+    string orderTye = map2["direction"];
     string symbol = map2["symbol"];
     long lock_ = string2long(map2["lock"]);
 
-    if(orderTye == "Buy"){
+    if(orderTye == "1"){
         priority_queue<node,vector<node*>,cmpAes> *pq = containerBuy[symbol];
         node *no = pq->top();
         long oldLock = (*lock)[no->orderNo];
@@ -814,13 +835,50 @@ bool update(string msg){
     return false;
  }
 
- map<string,string> toMap(string msg){
+ // deome
+volatile sig_atomic_t _running = 1;
+#define MAXFILE 65535
+void sigterm_handler(int arg)
+{
+    _running = 0;
+}
+/**
+ * 守护进程
+ */
+
+void deome(){
+#ifdef linux
+     pid_t pc;
+     int i;
+     pc = fork(); //第一步
+     if(pc < 0)
+     {
+         printf("error fork\n");
+         exit(1);
+     }
+     else if(pc > 0){
+         exit(0);
+     }
+
+     setsid(); //第二步
+     chdir("/"); //第三步
+     umask(0); //第四步
+    //第五步
+     for(i = 0 ; i < MAXFILE ; i++){
+         close(i);
+     }
+     signal(SIGTERM, sigterm_handler);
+#endif
+ }
+//dome end
+
+ map<string,string> toMap(const string& msg){
      map<string,string> map2;
      //Array *array =
      string array[255];
      toArray(msg,',', true,array);
      for (int i = 0; i < 25; ++i) {
-         if (array[i] != ""){
+         if (!array[i].empty()){
              string array1[255];
              //Array *array1 =
              toArray(array[i],':',true,array1);
@@ -832,7 +890,7 @@ bool update(string msg){
      return map2;
  }
 
-void toArray(string msg, char c, bool isMap,string array[]){
+void toArray(const string& msg, char c, bool isMap,string array[]){
      const char *ca = msg.c_str();
      //Array *array = new Array();
      //return new string[0]{};
@@ -855,7 +913,7 @@ void toArray(string msg, char c, bool isMap,string array[]){
    // return array;
  }
 
-long long int string2lli(string str)
+long long int string2lli(const string& str)
 {
     long long int result;
     istringstream is(str);
@@ -864,7 +922,7 @@ long long int string2lli(string str)
     return result;
 }
 
-int string2int(string str)
+int string2int(const string& str)
 {
     int result;
     istringstream is(str);
@@ -873,7 +931,7 @@ int string2int(string str)
     return result;
 }
 
-long string2long(string str)
+long string2long(const string& str)
 {
     long result;
     istringstream is(str);
@@ -882,7 +940,7 @@ long string2long(string str)
     return result;
 }
 
-long double string2ldouble(string str)
+long double string2ldouble(const string& str)
 {
     long double result;
     istringstream is(str);
@@ -930,19 +988,3 @@ string double2str(long double l){
      return size;
  }
 
- void wait_(){
-     while (wait){
-        #ifdef WIN32
-                 Sleep(10);// 休眠1秒 按毫秒计算
-        #endif
-
-        #ifdef linux
-                 sleep(0.01);// 休眠1秒 按秒计算
-        #endif
-     }
-     wait = 1;
- }
-
- void wait_release(){
-     wait = 0;
- }
