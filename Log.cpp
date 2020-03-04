@@ -102,7 +102,8 @@ bool Log::create(const string& path_) {
         }
     }
 #ifdef WIN32
-
+    string command = "mkdir  -p " + pa;
+    system(command.c_str());
 #endif
 #ifdef linux
     string command = "mkdir  -p " + pa;

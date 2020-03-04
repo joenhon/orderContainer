@@ -13,6 +13,7 @@
     #include <thread>
     #include <synchapi.h>
     #include <zmq_utils.h>
+    #include <sysinfoapi.h>
 #endif
 
 #ifdef linux
@@ -89,8 +90,8 @@ static map<string , map<string,long double >*> containerSellDepth;
 static map<string , priority_queue<node,vector<node*>,cmpAes>*> linkedBuy;
 static map<string , priority_queue<node,vector<node*>,cmpDes>*> linkedSell;
 static map<string,long> *lock = new map<string,long>;
-static map<string,int> *rem = new map<string,int>;
-static priority_queue<outNode,vector<outNode*>,lockDes> *conrainerLock = new priority_queue<outNode,vector<outNode*>,lockDes>();;
+static map<string,bool> *rem = new map<string,bool>;
+static priority_queue<outNode,vector<outNode*>,lockDes> *conrainerLock = new priority_queue<outNode,vector<outNode*>,lockDes>();
 static int start = 1;
 static long outTime_ = 0;
 
@@ -113,153 +114,77 @@ int getSize(int lenght,const char *ca, char c);
 string bool2string(bool bo);
 void outTime();
 void deome();
+void * core(void *context);
+node* addLock(node *no);
 #ifdef linux
     void *thread(void *ptr);
+    void * core(void *prt);
 #endif
-
+static Log log =  Log();
+string url_worker = "inproc://workers";
 // extern priority_queue<node,vector<node>,cmp> pq;
 int main() {
-    cout << "start" << endl;
+    cout << "orderContainer start" << endl;
     rr::RrConfig config;
-    Log *log = new Log;
+
     config.ReadConfig("../config.ini");
-    log->init(config.ReadString("System", "logPath", ""));
+    log.init(config.ReadString("System", "logPath", ""));
     string url = config.ReadString("ZMQ", "url", "");
     outTime_ = config.ReadInt("System","lockOutTime",30);
     int finalData = config.ReadInt("System","finalData",0);
+
     deome(); // 启动守护进程
-    #ifdef WIN32
-        thread outTimeThread(outTime);
-        void* context = zmq_init(1);
-        void* z_socket = zmq_socket(context, ZMQ_REP);
-    #endif
-    #ifdef linux
-        pthread_t id;
-        int ret = pthread_create(&id, NULL, thread, NULL);
-        if(ret) {
-            cout << "Create pthread error!" << endl;
+
+#ifdef WIN32
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    int count = si.dwNumberOfProcessors;
+#endif
+#ifdef linux
+    int count = sysconf(_SC_NPROCESSORS_CONF);
+#endif
+
+    cout << "app start!" << endl;
+#ifdef linux
+    void *context = zmq_ctx_new();
+#endif
+#ifdef WIN32
+    void* context = zmq_init(1);
+#endif
+
+    void *z_socket = zmq_socket(context, ZMQ_XREP);
+    zmq_bind(z_socket, url.c_str());
+
+    void *w_socket = zmq_socket(context, ZMQ_XREQ);
+    zmq_bind(w_socket, url_worker.c_str());
+
+#ifdef linux
+    pthread_t id;
+    int ret = pthread_create(&id, NULL, thread, NULL);
+    if(ret) {
+        cout << "Create pthread error!" << endl;
+        return 1;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        pthread_t core_id;
+        int ret1 = pthread_create(&core_id, NULL, core, context);
+        if (ret1) {
+            cout << "Create core error!" << endl;
             return 1;
         }
-    void *context = zmq_ctx_new();
-    void *z_socket = zmq_socket(context, ZMQ_REP);
-    #endif
-
-
-    zmq_bind(z_socket, url.c_str());
-    cout << "bind: " << url << "；lock out time :" << outTime_ << endl;
-    log->info( "bind: " + url + "；lock out time :" + long2str(outTime_));
-    while (start) {
-
-#ifdef WIN32
-        zmq_msg_t recv_msg;
-        zmq_msg_t send_msg;
-        zmq_msg_init(&recv_msg);
-        zmq_msg_recv(&recv_msg, z_socket, 0);//接受数据
-        string strData = (char *) zmq_msg_data(&recv_msg);
-        zmq_msg_close(&recv_msg);
-#endif
-
-#ifdef linux
-        char buffer[1024];
-        zmq_recv(z_socket, buffer, 1024, 0);
-        string strData = buffer;
-#endif
-
-        if (!strData.empty()) {
-            // 【指令】【参数】
-            //Array *array =
-            string array[255];
-            toArray(strData,' ', false,array);
-            //std::cout << "收到指令：" << array[0] << ",参数：" << array[1] << endl;
-            //log->info( "收到指令: " + array[0] + "；参数 :" + array[1]);
-            string result;
-            try {
-                if (array[0] == "push") {
-                    bool bo = push(array[1]);
-                    result.append("{\"start\":\"" + bool2string(bo)+"\"}");
-                } else if (array[0] == "update") {
-                    bool bo = update(array[1]);
-                    result.append("{\"start\":\"" + bool2string(bo)+"\"}");
-                } else if (array[0] == "getOne") {
-                    node *no = getOne(array[1]);
-                    // 如果指向为NULL
-                    if (no == NULL) {
-                        result.append("{\"start\":\"false\",\"data\":{}}");
-                    } else {
-                        result.append("{\"start\":\"true\"");
-                        result.append(",\"data\":" + no->data+"}");
-                    }
-                    //result.append("{\"start\":\"false\",\"data\":{}}");
-                    //cout << "返回数据：" << result << endl;
-                } else if (array[0] == "release") {
-                    bool bo = release(array[1]);
-                    result.append("{\"start\":\"" + bool2string(bo)+"\"}");
-                } else if (array[0] == "getAll") {
-                    string data = getAll(array[1]);
-                    if (data.empty()) {
-                        result.append("{\"start\":\"false\"}");
-                    } else {
-                        result.append("{\"start\":\"true\"");
-                        result.append(",\"data\":" + data+"}");
-                    }
-/*                    result.append("{\"start\":\"true\"");
-                    result.append(",\"data\":[]}");*/
-
-                } else if (array[0] == "del") {
-
-                    string data = del(array[1]);
-                    if (data.empty()) {
-                        result.append("{\"start\":\"false\"}");
-                    } else {
-                        result.append("{\"start\":\"true\"");
-                        result.append(",\"data\":" + data+"}");
-                    }
-                }else if (array[0] == "getDepthAll") {
-                    string data = getDepthAll(array[1]);
-                    if (data.empty()) {
-                        result.append("{\"start\":\"false\"}");
-                    } else {
-                        result.append("{\"start\":\"true\"");
-                        result.append(",\"data\":" + data+"}");
-                    }
-                } else if(array[0] == "stop"){
-                    //程序退出
-                    //TODO 后期需要添加数据保存 失效机制
-                    exit(0);
-                } else {
-                    result.append(
-                            "{\"start\":\"true\",data:\""
-                            "push 向队列管理添加一条数据；"
-                            "getOne 取到排列第一的数据并上锁；"
-                            "release 根据参数进行解锁；"
-                            "getAll 根据参数获取指定数量的数据；"
-                            "getDepthAll 查询指定条件的深度数据"
-                            "del 删除指定的数据；不会立即删除，但会立即查询不到；"
-                            "update 更新数据，持有钥匙的客户端才能更改。\"}");
-                }
-            }catch (...) {
-                result.append("{\"start\":\"false\",\"data\":\"错误的请求，请检查参数！\"}");
-                log->error("出现异常！"+strData);
-            }
-
-            //std::cout << (char*)zmq_msg_data(&recv_msg) << std::endl;
-            // 装载数据内存
-            int size = result.size();
-#ifdef WIN32
-            zmq_msg_init_size(&send_msg, size);
-            memcpy(zmq_msg_data(&send_msg), result.c_str(), size);//设置返回数据
-            zmq_sendmsg(z_socket, &send_msg, 0);//发送
-            zmq_msg_close(&send_msg);//关闭通道
-#endif
-
-#ifdef linux
-            zmq_send(z_socket, result.c_str(), size, 0);
-            memset(buffer,'\0',sizeof(buffer));
-#endif
-        }
-
     }
+#endif
+
+#ifdef WIN32
+    thread outTimeThread(outTime);
+    thread core1(core,context);
+    thread core2(core,context);
+#endif
+    zmq_device(ZMQ_QUEUE, z_socket, w_socket);
+
     zmq_close(z_socket);
+    zmq_close(w_socket);
     zmq_term(context);
 
     return 0;
@@ -290,14 +215,16 @@ void outTime(){
         time(&t);
         long old_lock = (*lock)[no->orderNo];
         if (no->t <= t && old_lock != 0){
-            (*lock)[no->orderNo] = 0;
+            //(*lock)[no->orderNo] = 0;
             lock->erase(no->orderNo);
             conrainerLock->pop();
             is = 1;
-            cout << "订单：" << no->orderNo << "锁超时！" << endl;
+            //cout << "订单：" << no->orderNo << "锁超时！" << endl;
+            //log.error("订单：" + no->orderNo + "锁超时！");
         } else{
             if (old_lock == 0){
                 //订单已经被释放
+                lock->erase(no->orderNo);
                 conrainerLock->pop();
             }
             is = 0;
@@ -310,7 +237,130 @@ void outTime(){
         outTime();
         return 0;
     }
+
 #endif
+    void * core(void *context){
+
+        void *w_socket = zmq_socket(context, ZMQ_REP);
+        zmq_connect(w_socket, url_worker.c_str());
+        cout << "bind: " << url_worker << "；lock out time :" << outTime_ << endl;
+        log.info( "bind: " + url_worker + "；lock out time :" + long2str(outTime_));
+        while (start) {
+
+#ifdef WIN32
+        zmq_msg_t recv_msg;
+        zmq_msg_t send_msg;
+        zmq_msg_init(&recv_msg);
+        zmq_msg_recv(&recv_msg, w_socket, 0);//接受数据
+        string strData = (char *) zmq_msg_data(&recv_msg);
+        zmq_msg_close(&recv_msg);
+#endif
+
+#ifdef linux
+            char buffer[1024];
+            zmq_recv(w_socket, buffer, 1024, 0);
+            string strData = buffer;
+#endif
+
+            if (!strData.empty()) {
+                // 【指令】【参数】
+                //Array *array =
+                string array[255];
+                toArray(strData,' ', false,array);
+                //std::cout << "收到指令：" << array[0] << ",参数：" << array[1] << endl;
+                log.info( "收到指令: " + array[0] + "；参数 :" + array[1]);
+                string result;
+                try {
+                    if (array[0] == "push") {
+                        bool bo = push(array[1]);
+                        result.append("{\"start\":\"" + bool2string(bo)+"\"}");
+                    } else if (array[0] == "update") {
+                        bool bo = update(array[1]);
+                        result.append("{\"start\":\"" + bool2string(bo)+"\"}");
+                    } else if (array[0] == "getOne") {
+                        node *no = getOne(array[1]);
+                        // 如果指向为NULL
+                        if (no == NULL) {
+                            result.append("{\"start\":\"false\",\"data\":{}}");
+                        } else {
+                            result.append("{\"start\":\"true\"");
+                            result.append(",\"data\":" + no->data+"}");
+                        }
+                        //result.append("{\"start\":\"false\",\"data\":{}}");
+                        //cout << "返回数据：" << result << endl;
+                    } else if (array[0] == "release") {
+                        bool bo = release(array[1]);
+                        result.append("{\"start\":\"" + bool2string(bo)+"\"}");
+                    } else if (array[0] == "getAll") {
+                        string data = getAll(array[1]);
+                        if (data.empty()) {
+                            result.append("{\"start\":\"false\"}");
+                        } else {
+                            result.append("{\"start\":\"true\"");
+                            result.append(",\"data\":" + data+"}");
+                        }
+/*                    result.append("{\"start\":\"true\"");
+                    result.append(",\"data\":[]}");*/
+
+                    } else if (array[0] == "del") {
+
+                        string data = del(array[1]);
+                        if (data.empty()) {
+                            result.append("{\"start\":\"false\"}");
+                        } else {
+                            result.append("{\"start\":\"true\"");
+                            result.append(",\"data\":" + data+"}");
+                        }
+                    }else if (array[0] == "getDepthAll") {
+                        string data = getDepthAll(array[1]);
+                        if (data.empty()) {
+                            result.append("{\"start\":\"false\"}");
+                        } else {
+                            result.append("{\"start\":\"true\"");
+                            result.append(",\"data\":" + data+"}");
+                        }
+                    } else if(array[0] == "stop"){
+                        //程序退出
+                        //TODO 后期需要添加数据保存 失效机制
+                        exit(0);
+                    } else {
+                        result.append(
+                                "{\"start\":\"true\",data:\""
+                                "push 向队列管理添加一条数据；"
+                                "getOne 取到排列第一的数据并上锁；"
+                                "release 根据参数进行解锁；"
+                                "getAll 根据参数获取指定数量的数据；"
+                                "getDepthAll 查询指定条件的深度数据"
+                                "del 删除指定的数据；不会立即删除，但会立即查询不到；"
+                                "update 更新数据，持有钥匙的客户端才能更改。\"}");
+                    }
+                }catch (...) {
+                    result.append("{\"start\":\"false\",\"data\":\"错误的请求，请检查参数！\"}");
+                    log.error("出现异常！"+strData);
+                }
+
+                //std::cout << (char*)zmq_msg_data(&recv_msg) << std::endl;
+                // 装载数据内存
+                int size = result.size();
+#ifdef WIN32
+                zmq_msg_init_size(&send_msg, size);
+                memcpy(zmq_msg_data(&send_msg), result.c_str(), size);//设置返回数据
+                zmq_sendmsg(w_socket, &send_msg, 0);//发送
+                zmq_msg_close(&send_msg);//关闭通道
+#endif
+
+#ifdef linux
+                zmq_send(w_socket, result.c_str(), size, 0);
+                memset(buffer,'\0',sizeof(buffer));
+#endif
+            }
+
+        }
+        zmq_close(w_socket);
+        zmq_term(context);
+
+        return 0;
+    }
 /**
  * 获取对象并上锁
  * @param symbol
@@ -321,6 +371,7 @@ void outTime(){
     map<string,string> map2 = toMap(msg);
     string symbol = map2["symbol"];
     string isBuy = map2["direction"];
+    string notLock = map2["notLock"];
     if (isBuy == "1"){
         // 获取购买队列
         priority_queue<node,vector<node*>,cmpAes> *pq = containerBuy[symbol];
@@ -339,28 +390,33 @@ void outTime(){
                         return NULL;
                     }
                     pq->pop();
-                    (*rem)[no->orderNo] = 0;
+                    //(*rem)[no->orderNo] = 0;
                     rem->erase(no->orderNo);
                     no = pq->top();
                 } else{
+                    (*rem).erase(no->orderNo);
                     break;
                 }
             }
             // 判断是否上锁
             if ((*lock)[no->orderNo] != 0){
+                if (notLock == "true"){
+                    priority_queue<node,vector<node*>,cmpAes> pq_copy = *pq;
+                    while (!pq_copy.empty()){
+                        node *no_copy = pq_copy.top();
+                        if ((*lock)[no_copy->orderNo] != 0){
+                            pq_copy.pop();
+                        } else{
+                            return addLock(no_copy);
+                        }
+                    }
+                    return NULL;
+                }
                 // 是则返回状态
+                log.info("getOne Buy 数据锁定中 参数：" + msg + "订单号：" + no->orderNo);
                 return new node(0,0,"{\"start\":0}","0");
             }
-            // 进行上锁 并返回数据
-            (*lock)[no->orderNo] = rand() % 999999999 + 100000000;
-            string lock_str = long2str((*lock)[no->orderNo]);
-            node *no_ = new node(0,0,no->data+",\"lock\":"+lock_str,"0");
-            time_t t;
-            time(&t);
-            t += outTime_;
-            outNode *out = new outNode(t,no->orderNo);//创建锁超时数据
-            conrainerLock->push(out);//放入超时队列
-            return no_;
+            return addLock(no);
         }
     } else{
         // 获取出售队列
@@ -379,26 +435,32 @@ void outTime(){
                         return NULL;
                     }
                     pq->pop();
-                    (*rem)[no->orderNo] = 0;
+                    //(*rem)[no->orderNo] = 0;
                     rem->erase(no->orderNo);
                     no = pq->top();
                 } else{
+                    (*rem).erase(no->orderNo);
                     break;
                 }
             }
             if ((*lock)[no->orderNo] != 0){
+                if (notLock == "true"){
+                    priority_queue<node,vector<node*>,cmpDes> pq_copy = *pq;
+                    while (!pq_copy.empty()){
+                        node *no_copy = pq_copy.top();
+                        if ((*lock)[no_copy->orderNo] != 0){
+                            pq_copy.pop();
+                        } else{
+                            return addLock(no_copy);
+                        }
+                    }
+                    return NULL;
+                }
+                log.info("getOne Sell 数据锁定中 参数：" + msg + "订单号：" + no->orderNo);
                 return new node(0,0,"{start:0}","0");
             }
-            (*lock)[no->orderNo] = rand() % 999999999 + 100000000;
-            //no->data =
-            string lock_str = long2str((*lock)[no->orderNo]);
-            node *no_ = new node(0,0,no->data+",\"lock\":"+lock_str,"0");
-            time_t t;
-            time(&t);
-            t += outTime_;
-            outNode *out = new outNode(t,no->orderNo);//创建锁超时数据
-            conrainerLock->push(out);//放入超时队列
-            return no_;
+
+            return addLock(no);
         }
     }
 }
@@ -415,10 +477,14 @@ void outTime(){
     long lock_ = string2long(map2["lock"]);
     long oldLock = (*lock)[orderNo];
     if(oldLock == lock_){
-        (*lock)[orderNo] = 0;
+        //(*lock)[orderNo] = 0;
         lock->erase(orderNo);
         return true;
     } else{
+        if (oldLock == 0){
+            lock->erase(orderNo);
+        }
+        log.error("释放锁失败，锁不匹配 orderNo: "+orderNo);
         return false;
     }
  }
@@ -434,7 +500,7 @@ void outTime(){
      */
      map<string,string> map2 = toMap(msg);
      if ((*rem)[map2["orderNo"]] == 1){
-         (*rem)[map2["orderNo"]] = 0;
+         //(*rem)[map2["orderNo"]] = 0;
          rem->erase(map2["orderNo"]);
          return true;
          //return (*rem).erase(map2["orderNo"]);
@@ -514,6 +580,7 @@ void outTime(){
 
          return true;
      }
+     log.error("push 数据异常："+msg);
      return false;
  }
 /**
@@ -544,8 +611,11 @@ void outTime(){
                          long lock_ = (*lock)[no->orderNo];
                          int  remLo = (*rem)[no->orderNo];
                          if (lock_ != 0 || remLo != 0){
+                             (*rem).erase(no->orderNo);
                              pq.pop();
                              continue;
+                         } else if (remLo == 0){
+                             (*rem).erase(no->orderNo);
                          }
                          if (i != 0){
                              result.append(",");
@@ -576,8 +646,11 @@ void outTime(){
                          long lock_ = (*lock)[no->orderNo];
                          int  remLo = (*rem)[no->orderNo];
                          if (lock_ != 0 || remLo != 0){
+                             (*rem).erase(no->orderNo);
                              pq.pop();
                              continue;
+                         } else if (remLo == 0){
+                             (*rem).erase(no->orderNo);
                          }
                          if (i != 0){
                              result.append(",");
@@ -627,8 +700,11 @@ void outTime(){
                         long lock_ = (*lock)[no->orderNo];
                         long  remLo = (*rem)[no->orderNo];
                         if (lock_ != 0 || remLo != 0 || price_odl == no->x){
+                            (*rem).erase(no->orderNo);
                             pq.pop();
                             continue;
+                        } else if (remLo == 0){
+                            (*rem).erase(no->orderNo);
                         }
                         if (i != 0){
                             result.append(",");
@@ -665,8 +741,11 @@ void outTime(){
                         long lock_ = (*lock)[no->orderNo];
                         long  remLo = (*rem)[no->orderNo];
                         if (lock_ != 0 || remLo != 0 || price_odl == no->x){
+                            (*rem).erase(no->orderNo);
                             pq.pop();
                             continue;
+                        } else if (remLo == 0){
+                            (*rem).erase(no->orderNo);
                         }
                         if (i != 0){
                             result.append(",");
@@ -701,6 +780,7 @@ void outTime(){
      if (oldLock != 0){
          long lock_ = string2long(map2["lock"]);
          if(lock_ == 0 || oldLock != lock_){
+             log.error("删除数据持有的锁与实际数据锁不匹配，持有锁:"+long2str(lock_)+",实际锁:"+long2str(oldLock));
              return "";
          }
      }
@@ -723,6 +803,7 @@ void outTime(){
                      }
                      map<string,string> map_or = toMap(result);
                      if (sequence.empty() || sequence != map_or["sequence"]){
+                         log.error("删除数据版本号不匹配 sequence:"+sequence+",请求版本:"+map_or["sequence"]);
                          return "";
                      }
                      map<string,long double> *depth = containerBuyDepth[symbol];
@@ -749,7 +830,7 @@ void outTime(){
                              no_list.pop_front();//删除第一个元素
                          }
                      }
-                     (*rem)[no->orderNo] = 1;
+                     (*rem)[no->orderNo] = true;
                      break;
                  }
              }
@@ -770,6 +851,7 @@ void outTime(){
                      }
                      map<string,string> map_or = toMap(result);
                      if (sequence.empty() || sequence != map_or["sequence"]){
+                         log.error("删除数据版本号不匹配 sequence:"+sequence+",请求版本:"+map_or["sequence"]);
                          return "";
                      }
                      map<string,long double> *depth = containerBuyDepth[symbol];
@@ -796,7 +878,7 @@ void outTime(){
                              no_list.pop_front();//删除第一个元素
                          }
                      }
-                     (*rem)[no->orderNo] = 1;
+                     (*rem)[no->orderNo] = true;
                      break;
                  }
              }
@@ -823,6 +905,7 @@ bool update(const string& msg){
             /*pq->pop();//删除顶部的数据
             return push(msg);*/
             no->data = msg;
+            return true;
         }
     } else{
         priority_queue<node,vector<node*>,cmpDes> *pq = containerSell[symbol];
@@ -830,8 +913,10 @@ bool update(const string& msg){
         long oldLock = (*lock)[no->orderNo];
         if(oldLock == lock_){
             no->data = msg;
+            return true;
         }
     }
+    log.info("数据更新失败:"+orderTye);
     return false;
  }
 
@@ -896,14 +981,17 @@ void toArray(const string& msg, char c, bool isMap,string array[]){
      //return new string[0]{};
      int index = 0;
      for (int j = 0; j < msg.length(); ++j) {
+         if (ca[j] == '\r' || ca[j] == '\255' || ca[j] == '\272' || ca[j] == '\360'){
+             return;
+         }
          if (isMap && (ca[j] == '{' || ca[j] == '\"')){
              continue;
          }
          if (ca[j] == c){
              index++;
-         } else if (ca[j] == '}'){
-             if (!isMap){
-                 array[index] = array[index]+ca[j];
+         } else if (ca[j] == '}') {
+             if (!isMap) {
+                 array[index] = array[index] + ca[j];
              }
              //return array;
          } else{
@@ -988,3 +1076,15 @@ string double2str(long double l){
      return size;
  }
 
+node* addLock(node *no){
+     // 进行上锁 并返回数据
+     (*lock)[no->orderNo] = rand() % 999999999 + 100000000;
+     string lock_str = long2str((*lock)[no->orderNo]);
+     node *no_ = new node(0,0,no->data+",\"lock\":"+lock_str,"0");
+     time_t t;
+     time(&t);
+     t += outTime_;
+     outNode *out = new outNode(t,no->orderNo);//创建锁超时数据
+     conrainerLock->push(out);//放入超时队列
+    return no_;
+}
